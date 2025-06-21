@@ -18,3 +18,7 @@ dev = [
     "ruff>=0.12.0",
     "tiktoken>=0.9.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["owl*"]
+exclude = ["data*", "tests*"]
