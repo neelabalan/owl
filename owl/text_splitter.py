@@ -1,7 +1,7 @@
 import copy
 import typing
 
-from document import Document
+from owl.document import Document
 
 
 class TextSplitter:

@@ -2,9 +2,9 @@ import pathlib
 
 import tiktoken
 
-from document import DocumentLoader
-from text_splitter import TextSplitter
-from url import WebAddress
+from owl.document import DocumentLoader
+from owl.text_splitter import TextSplitter
+from owl.url import WebAddress
 
 
 def direct_load():

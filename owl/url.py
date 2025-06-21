@@ -1,5 +1,6 @@
-import pydantic
 from urllib.parse import urlparse
+
+import pydantic
 
 
 class WebAddress(pydantic.BaseModel):

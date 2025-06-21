@@ -7,7 +7,7 @@ import pydantic
 # maybe httpx?
 import requests
 
-from url import WebAddress
+from owl import url
 
 PathLike = str | pathlib.Path
 
@@ -15,7 +15,7 @@ PathLike = str | pathlib.Path
 class Document(pydantic.BaseModel):
     id: str | None = pydantic.Field(default=None)
     content: str | bytes
-    source: pathlib.Path | WebAddress | None = None
+    source: url.WebAddress | pathlib.Path | None = None
     metadata: dict | pydantic.BaseModel | None = None
     model_config = pydantic.ConfigDict(frozen=True)
 
@@ -39,10 +39,10 @@ class Document(pydantic.BaseModel):
 
 class DocumentLoader:
     @staticmethod
-    def load(source: pathlib.Path | WebAddress) -> Document:
+    def load(source: pathlib.Path | url.WebAddress) -> Document:
         if isinstance(source, pathlib.Path):
             return DocumentLoader.load_file(source)
-        elif isinstance(source, WebAddress):
+        elif isinstance(source, url.WebAddress):
             return DocumentLoader.load_url(source)
         else:
             raise TypeError('source must be pathlib.Path or URL object')
@@ -63,7 +63,7 @@ class DocumentLoader:
         return Document(content=content, source=path, metadata=metadata)
 
     @staticmethod
-    def load_url(url: WebAddress) -> Document:
+    def load_url(url: url.WebAddress) -> Document:
         resp = requests.get(str(url))
         resp.raise_for_status()
         content = resp.text
@@ -72,7 +72,6 @@ class DocumentLoader:
             'content_length': len(content),
             'mime_type': mime_type,
             'source': url.url,
-            'response_status': resp.status_code,
             'response_headers': dict(resp.headers),
         }
         return Document(content=content, source=url, metadata=metadata)
