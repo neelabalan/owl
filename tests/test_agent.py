@@ -6,7 +6,7 @@ import requests
 from owl import agent
 
 
-class GemmaAgent(agent.Agent):
+class OllamaAgent(agent.Agent):
     _url = os.getenv("OLLAMA_URL")
 
     def run(self, prompt: str):
@@ -53,7 +53,8 @@ class HumanInTheLoopConversation(agent.Conversation):
 
 
 def run():
-    participants = [agent.Human(name='george', role=agent.Role.user), GemmaAgent(model="gemma3:27b", instruction='You are a poet', name='Frost', role=agent.Role.agent)]
+    # participants = [agent.Human(name='george', role=agent.Role.user), OllamaAgent(model="gemma3:27b", instruction='You are a philosopher', name='Frost', role=agent.Role.agent)]
+    participants = [agent.Human(name='george', role=agent.Role.user), OllamaAgent(model="gemma3:27b", instruction='You are a philosopher', name='Speaker', role=agent.Role.agent), OllamaAgent(model="phi4:latest", instruction='You are a scientist', name='Brainy', role=agent.Role.agent)]
     conversation = HumanInTheLoopConversation(participants)
     while True:
         try:
