@@ -21,7 +21,7 @@ class AgentError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Tool:
     name: str
     description: str
@@ -33,11 +33,11 @@ class Tool:
         return self.function(**kwargs)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Message:
     author: str
     content: str = ''
-    timestamp: datetime = dataclasses.field(default_factory=datetime.datetime.now)
+    timestamp: datetime.datetime = dataclasses.field(default_factory=datetime.datetime.now)
     tool_calls: list[dict[str, typing.Any]] = dataclasses.field(default_factory=list)
     tool_call_id: str | None = None
 
@@ -62,12 +62,12 @@ class ThreadState(enum.Enum):
     INCOMPLETE = 'incomplete'
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class Thread:
     id: str = dataclasses.field(default_factory=lambda: str(uuid.uuid4()))
     messages: list[Message] = dataclasses.field(default_factory=list)
     metadata: dict[str, typing.Any] = dataclasses.field(default_factory=dict)
-    created_at: datetime = dataclasses.field(default_factory=datetime.datetime.now)
+    created_at: datetime.datetime = dataclasses.field(default_factory=datetime.datetime.now)
 
     def add_message(self, message: Message) -> None:
         self.messages.append(message)
@@ -85,10 +85,10 @@ class AgentManager:
     def get_agent(self): ...
 
 
+@dataclasses.dataclass(frozen=True)
 class Human:
-    def __init__(self, name: str, role: Role):
-        self.name = name
-        self.role = role
+    name: str
+    role: Role
 
 
 @dataclasses.dataclass
