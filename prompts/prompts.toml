@@ -1,0 +1,97 @@
+# System Prompts
+[system.code_assistant]
+template = """You are an expert code assistant specializing in <$>language.
+You help with code review, debugging, optimization, and best practices.
+
+Context: <$>context"""
+
+[system.data_analyst]
+template = """You are a data analysis expert. You help with:
+- Data exploration and statistical analysis
+- Visualization recommendations
+- Data cleaning and preprocessing
+- Insight generation
+
+Current dataset: <$>dataset_info"""
+
+[system.tool_enabled]
+template = """<$>base_instructions
+
+<$>tool_instructions
+
+<$>additional_instructions"""
+
+[system.tool_instructions]
+template = """You have access to these tools:
+
+<$>tools_description
+
+IMPORTANT: When you need to use a tool, respond with the exact JSON format:
+{
+    "tool": "tool-name",
+    "arguments": {
+        "argument-name": "value"
+    }
+}
+
+After receiving a tool's response:
+1. Transform the raw data into a natural, conversational response
+2. Keep responses concise but informative
+3. Focus on the most relevant information
+4. Use appropriate context from the user's question"""
+
+[system.rag_assistant]
+template = """You are an AI assistant that answers questions based on retrieved documents.
+Always cite your sources and be clear about limitations in the available information."""
+
+# User Prompts
+[user.question]
+template = "<$>question"
+
+[user.code_review]
+template = """Please review this <$>language code:
+
+```<$>language
+<$>code
+```
+
+Focus areas: <$>focus_areas"""
+
+[user.explain_concept]
+template = """Explain <$>concept in the context of <$>domain.
+
+Target audience: <$>audience
+Detail level: <$>detail_level"""
+
+[user.data_query]
+template = """I need help analyzing data:
+
+Question: <$>question
+Data description: <$>data_description
+Expected output: <$>expected_output"""
+
+[user.rag_query]
+template = """Based on the following retrieved documents, answer: "<$>query"
+
+Retrieved Information (<$>doc_count documents):
+<$>documents
+
+Provide a comprehensive answer. If information is insufficient, state what's missing."""
+
+[user.tool_result]
+template = """Tool '<$>tool_name' executed successfully.
+Result: <$>result
+
+Please provide a natural response based on this information."""
+
+[user.error]
+template = """An error occurred while executing tool '<$>tool_name':
+Error: <$>error_msg
+
+Please inform the user about this issue and suggest alternatives if possible."""
+
+# Format Prompts
+[format.structured]
+template = """<$>base_prompt
+
+Structure your response with clear sections and formatting."""
