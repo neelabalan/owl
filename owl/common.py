@@ -1,4 +1,5 @@
 import datetime
+import inspect
 import json
 import re
 import typing
@@ -51,3 +52,24 @@ def split_text_with_regex(
     else:
         splits = list(text)
     return [s for s in splits if s != '']
+
+
+def extract_function_description(func: typing.Callable) -> str:
+    if not func.__doc__:
+        return ''
+
+    docstring = inspect.cleandoc(func.__doc__)
+    lines = docstring.split('\n')
+
+    description_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Stop at any section marker (Args:, Returns:, Raises:, etc.)
+        if stripped.lower() in ['args:', 'arguments:', 'parameters:', 'params:', 'returns:', 'return:', 'raises:', 'yields:', 'yield:', 'examples:', 'example:', 'note:', 'notes:']:
+            break
+
+        description_lines.append(line)
+
+    return '\n'.join(description_lines).strip()

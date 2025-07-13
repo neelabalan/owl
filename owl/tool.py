@@ -6,6 +6,8 @@ import json
 import logging
 import typing
 
+from common import extract_function_description
+
 
 class ToolType(enum.Enum):
     FUNCTION = 'function'
@@ -63,7 +65,7 @@ class ToolSchema:
 
 class ToolExecutor(abc.ABC):
     @abc.abstractmethod
-    async def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
+    def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
         pass
 
     @abc.abstractmethod
@@ -72,19 +74,34 @@ class ToolExecutor(abc.ABC):
 
 
 class FunctionToolExecutor(ToolExecutor):
-    def __init__(self, func: typing.Union[typing.Callable, typing.Callable[..., typing.Awaitable]], schema: ToolSchema):
+    def __init__(self, func: typing.Callable, schema: ToolSchema):
         self.func = func
         self.schema = schema
-        self.is_async = asyncio.iscoroutinefunction(func)
 
-    async def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
+    def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
         try:
-            if self.is_async:
-                return await self.func(**arguments)
-            else:
-                return self.func(**arguments)
+            return self.func(**arguments)
         except TypeError as e:
             raise ToolExecutionError(f'Invalid arguments for {self.schema.name}: {e}')
+
+    def get_schema(self) -> ToolSchema:
+        return self.schema
+
+
+class AsyncFunctionToolExecutor(ToolExecutor):
+    def __init__(self, func: typing.Callable[..., typing.Awaitable], schema: ToolSchema):
+        self.func = func
+        self.schema = schema
+
+    async def execute_async(self, arguments: dict[str, typing.Any]) -> typing.Any:
+        try:
+            return await self.func(**arguments)
+        except TypeError as e:
+            raise ToolExecutionError(f'Invalid arguments for {self.schema.name}: {e}')
+
+    def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
+        import asyncio
+        return asyncio.run(self.execute_async(arguments))
 
     def get_schema(self) -> ToolSchema:
         return self.schema
@@ -96,12 +113,16 @@ class MCPToolExecutor(ToolExecutor):
         self.server_session = server_session
         self.schema = schema
 
-    async def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
+    async def execute_async(self, arguments: dict[str, typing.Any]) -> typing.Any:
         try:
             result = await self.server_session.call_tool(self.tool_name, {'request': arguments})
             return result
         except Exception as e:
             raise ToolExecutionError(f'MCP tool execution failed: {e}')
+
+    def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
+        import asyncio
+        return asyncio.run(self.execute_async(arguments))
 
     def get_schema(self) -> ToolSchema:
         return self.schema
@@ -115,27 +136,39 @@ class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, ToolExecutor] = {}
 
-    def register_tool(self, tool_executor: ToolExecutor) -> None:
-        schema = tool_executor.get_schema()
-        self._tools[schema.name] = tool_executor
-
-    def register_function(
+    def register(
         self,
-        func: typing.Union[typing.Callable, typing.Callable[..., typing.Awaitable]],
+        tool: typing.Union[ToolExecutor, typing.Callable, typing.Callable[..., typing.Awaitable]],
         name: str = None,
         description: str = '',
         parameters: list[ToolParameter] = None,
     ) -> None:
-        if name is None:
-            name = func.__name__
+        if isinstance(tool, ToolExecutor):
+            schema = tool.get_schema()
+            self._tools[schema.name] = tool
+        elif callable(tool):
+            if name is None:
+                name = tool.__name__
 
-        if parameters is None:
-            parameters = self._infer_parameters_from_function(func)
+            # Prefer docstring description over provided description
+            docstring_description = extract_function_description(tool)
+            final_description = docstring_description if docstring_description else description
 
-        tool_type = ToolType.ASYNC_FUNCTION if asyncio.iscoroutinefunction(func) else ToolType.FUNCTION
-        schema = ToolSchema(name, description, parameters, tool_type)
-        executor = FunctionToolExecutor(func, schema)
-        self.register_tool(executor)
+            if parameters is None:
+                parameters = self._infer_parameters_from_function(tool)
+
+            if asyncio.iscoroutinefunction(tool):
+                tool_type = ToolType.ASYNC_FUNCTION
+                schema = ToolSchema(name, final_description, parameters, tool_type)
+                executor = AsyncFunctionToolExecutor(tool, schema)
+            else:
+                tool_type = ToolType.FUNCTION
+                schema = ToolSchema(name, final_description, parameters, tool_type)
+                executor = FunctionToolExecutor(tool, schema)
+
+            self._tools[schema.name] = executor
+        else:
+            raise ValueError(f"Cannot register tool of type {type(tool)}")
 
     def _infer_parameters_from_function(self, func: typing.Callable) -> list[ToolParameter]:
         import inspect
@@ -148,17 +181,13 @@ class ToolRegistry:
             required = param.default == inspect.Parameter.empty
             default = param.default if param.default != inspect.Parameter.empty else None
 
-            doc_description = ''
-            if func.__doc__:
-                lines = func.__doc__.split('\n')
-                for line in lines:
-                    if param_name in line and ':' in line:
-                        doc_description = line.split(':', 1)[1].strip()
-                        break
-
             parameters.append(
                 ToolParameter(
-                    name=param_name, type_hint=type_hint, required=required, description=doc_description, default=default
+                    name=param_name,
+                    type_hint=type_hint,
+                    required=required,
+                    description='',
+                    default=default
                 )
             )
 
@@ -207,7 +236,7 @@ class UniversalToolCaller:
         self.registry = registry
         self.parser = ToolCallParser()
 
-    async def execute_tool_call(self, response: str) -> ToolCallResult:
+    def execute_tool_call(self, response: str) -> ToolCallResult:
         tool_call = self.parser.parse_tool_call(response)
         if not tool_call:
             return ToolCallResult(success=False, error='Invalid tool call format')
@@ -220,7 +249,7 @@ class UniversalToolCaller:
                 return ToolCallResult(success=False, error=f"Tool '{tool_name}' not found")
 
             tool_executor = self.registry.get_tool(tool_name)
-            result = await tool_executor.execute(arguments)
+            result = tool_executor.execute(arguments)
             return ToolCallResult(success=True, result=result)
 
         except ToolExecutionError as e:

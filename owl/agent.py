@@ -5,6 +5,8 @@ import enum
 import typing
 import uuid
 
+import tool
+
 
 class Role(enum.Enum):
     user = 'user'
@@ -19,18 +21,6 @@ class TokenLimitExceeded(Exception):
 
 class AgentError(Exception):
     pass
-
-
-@dataclasses.dataclass(frozen=True)
-class Tool:
-    name: str
-    description: str
-    parameters: dict[str, typing.Any]
-    function: typing.Callable
-
-    def call(self, **kwargs) -> typing.Any:
-        """Execute the tool function"""
-        return self.function(**kwargs)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -97,7 +87,7 @@ class Agent:
     name: str
     role: Role
     description: str = ''
-    tools: list[Tool] = dataclasses.field(default_factory=list)
+    tool_registry: tool.ToolRegistry = dataclasses.field(default_factory=tool.ToolRegistry)
     model: str = 'gpt-4o'
     temperature: float = 0.0
     seed: int = 13
