@@ -60,7 +60,7 @@ class ToolSchema:
             Description: {self.description}
             Arguments:
             {chr(10).join(args_desc)}
-            """).strip()
+        """).strip()
 
 
 class ToolExecutor(abc.ABC):
@@ -101,6 +101,7 @@ class AsyncFunctionToolExecutor(ToolExecutor):
 
     def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
         import asyncio
+
         return asyncio.run(self.execute_async(arguments))
 
     def get_schema(self) -> ToolSchema:
@@ -122,6 +123,7 @@ class MCPToolExecutor(ToolExecutor):
 
     def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
         import asyncio
+
         return asyncio.run(self.execute_async(arguments))
 
     def get_schema(self) -> ToolSchema:
@@ -168,7 +170,7 @@ class ToolRegistry:
 
             self._tools[schema.name] = executor
         else:
-            raise ValueError(f"Cannot register tool of type {type(tool)}")
+            raise ValueError(f'Cannot register tool of type {type(tool)}')
 
     def _infer_parameters_from_function(self, func: typing.Callable) -> list[ToolParameter]:
         import inspect
@@ -182,13 +184,7 @@ class ToolRegistry:
             default = param.default if param.default != inspect.Parameter.empty else None
 
             parameters.append(
-                ToolParameter(
-                    name=param_name,
-                    type_hint=type_hint,
-                    required=required,
-                    description='',
-                    default=default
-                )
+                ToolParameter(name=param_name, type_hint=type_hint, required=required, description='', default=default)
             )
 
         return parameters

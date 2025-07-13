@@ -67,7 +67,21 @@ def extract_function_description(func: typing.Callable) -> str:
         stripped = line.strip()
 
         # Stop at any section marker (Args:, Returns:, Raises:, etc.)
-        if stripped.lower() in ['args:', 'arguments:', 'parameters:', 'params:', 'returns:', 'return:', 'raises:', 'yields:', 'yield:', 'examples:', 'example:', 'note:', 'notes:']:
+        if stripped.lower() in [
+            'args:',
+            'arguments:',
+            'parameters:',
+            'params:',
+            'returns:',
+            'return:',
+            'raises:',
+            'yields:',
+            'yield:',
+            'examples:',
+            'example:',
+            'note:',
+            'notes:',
+        ]:
             break
 
         description_lines.append(line)
