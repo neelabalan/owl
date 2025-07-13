@@ -5,7 +5,7 @@ import enum
 import typing
 import uuid
 
-import tool
+from owl import tool
 
 
 class Role(enum.Enum):

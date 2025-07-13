@@ -1,3 +1,4 @@
+import dataclasses
 import os
 import random
 from pathlib import Path
@@ -74,6 +75,7 @@ Use these tools when they would be helpful for the user's request."""
     )
 
 
+@dataclasses.dataclass
 class ResearchAgent(agent.Agent):
     def __post_init__(self):
         api_key = os.getenv('OPENAI_API_KEY')
@@ -150,7 +152,7 @@ def run_demo(interactive: bool = False):
         instruction=research_instruction,
         name='ResearchAgent',
         role=agent.Role.agent,
-        model='gpt-4o-mini',
+        model='gpt-4.1',
         tool_registry=research_tools,
     )
 

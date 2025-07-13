@@ -6,7 +6,7 @@ import json
 import logging
 import typing
 
-from common import extract_function_description
+from owl.common import extract_function_description
 
 
 class ToolType(enum.Enum):
@@ -49,18 +49,10 @@ class ToolSchema:
                 arg_desc += f' (default: {param.default})'
             args_desc.append(arg_desc)
 
-        required_fields = [p.name for p in self.parameters if p.required]
-        if required_fields:
-            args_desc.append(f'\nRequired fields: {", ".join(required_fields)}')
+        # Format arguments with proper indentation
+        formatted_args = '\n'.join(f'  {arg}' for arg in args_desc)
 
-        import textwrap
-
-        return textwrap.dedent(f"""
-            Tool: {self.name}
-            Description: {self.description}
-            Arguments:
-            {chr(10).join(args_desc)}
-        """).strip()
+        return f"""Tool: {self.name}\nDescription: {self.description}\nArguments:\n{formatted_args}\n\n"""
 
 
 class ToolExecutor(abc.ABC):
@@ -179,7 +171,15 @@ class ToolRegistry:
         parameters = []
 
         for param_name, param in signature.parameters.items():
-            type_hint = str(param.annotation) if param.annotation != inspect.Parameter.empty else 'Any'
+            if param.annotation != inspect.Parameter.empty:
+                # Format type hint properly
+                if hasattr(param.annotation, '__name__'):
+                    type_hint = param.annotation.__name__
+                else:
+                    type_hint = str(param.annotation).replace("<class '", '').replace("'>", '')
+            else:
+                type_hint = 'Any'
+
             required = param.default == inspect.Parameter.empty
             default = param.default if param.default != inspect.Parameter.empty else None
 
