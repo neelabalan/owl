@@ -2,6 +2,7 @@ import dataclasses
 import os
 import random
 from pathlib import Path
+from typing import Annotated
 
 import requests
 
@@ -29,7 +30,10 @@ def calculate_math(expression: str) -> str:
         return f'Error calculating {expression}: {e}'
 
 
-def search_files(directory: str, pattern: str) -> str:
+def search_files(
+    directory: Annotated[str, 'Directory path to search in', {'examples': ['.', '/home/user', 'src/']}],
+    pattern: Annotated[str, 'Glob pattern for file matching', {'examples': ['*.py', '**/*.txt', 'test_*.py']}],
+) -> str:
     try:
         dir_path = Path(directory)
         if not dir_path.exists():

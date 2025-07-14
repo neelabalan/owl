@@ -7,6 +7,7 @@ import logging
 import typing
 
 from owl.common import extract_function_description
+from owl.parameter_inference import ParameterInferenceEngine
 
 
 class ToolType(enum.Enum):
@@ -129,6 +130,7 @@ class ToolExecutionError(Exception):
 class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, ToolExecutor] = {}
+        self._parameter_engine = ParameterInferenceEngine()
 
     def register(
         self,
@@ -165,26 +167,24 @@ class ToolRegistry:
             raise ValueError(f'Cannot register tool of type {type(tool)}')
 
     def _infer_parameters_from_function(self, func: typing.Callable) -> list[ToolParameter]:
-        import inspect
+        param_infos = self._parameter_engine.infer_parameters(func)
 
-        signature = inspect.signature(func)
         parameters = []
-
-        for param_name, param in signature.parameters.items():
-            if param.annotation != inspect.Parameter.empty:
-                # Format type hint properly
-                if hasattr(param.annotation, '__name__'):
-                    type_hint = param.annotation.__name__
-                else:
-                    type_hint = str(param.annotation).replace("<class '", '').replace("'>", '')
-            else:
-                type_hint = 'Any'
-
-            required = param.default == inspect.Parameter.empty
-            default = param.default if param.default != inspect.Parameter.empty else None
+        for param_info in param_infos:
+            # Create enhanced description with constraints
+            enhanced_description = param_info.description
+            if param_info.constraints:
+                constraint_str = self._parameter_engine.format_constraints(param_info.constraints)
+                enhanced_description += constraint_str
 
             parameters.append(
-                ToolParameter(name=param_name, type_hint=type_hint, required=required, description='', default=default)
+                ToolParameter(
+                    name=param_info.name,
+                    type_hint=param_info.type_hint,
+                    required=param_info.required,
+                    description=enhanced_description,
+                    default=param_info.default,
+                )
             )
 
         return parameters
