@@ -4,11 +4,51 @@ import random
 from pathlib import Path
 from typing import Annotated
 
+import pydantic
 import requests
 
 from owl import agent
 from owl import tool
 from owl.prompt import PromptBuilder
+
+
+class TaskAssignee(pydantic.BaseModel):
+    name: str = pydantic.Field(description='Name of the assignee')
+    email: str = pydantic.Field(description='Email address', pattern=r'^[^@]+@[^@]+\.[^@]+$')
+    role: str = pydantic.Field(description='Role or department', default='developer')
+
+
+class TaskRequest(pydantic.BaseModel):
+    title: str = pydantic.Field(description='Brief title for the task')
+    priority: str = pydantic.Field(description='Task priority level', pattern='^(low|medium|high|urgent)$')
+    deadline: str = pydantic.Field(description='Deadline in YYYY-MM-DD format', pattern=r'^\d{4}-\d{2}-\d{2}$')
+    category: str = pydantic.Field(description='Task category', default='general')
+    # this works
+    # assignee: TaskAssignee = pydantic.Field(description='Person assigned to this task')
+    tags: list[str] = pydantic.Field(description='List of tags for categorization', default=[])
+
+
+def create_task(task_data: TaskRequest) -> str:
+    """Create and schedule a new task with validation"""
+    try:
+        # Simulate task creation
+        task_id = random.randint(1000, 9999)
+
+        # Format tags
+        tags_str = ', '.join(task_data.tags) if task_data.tags else 'None'
+
+        response = f"""Task created successfully!
+Task ID: {task_id}
+Title: {task_data.title}
+Priority: {task_data.priority.upper()}
+Deadline: {task_data.deadline}
+Category: {task_data.category}
+Tags: {tags_str}
+Status: Scheduled"""
+
+        return response
+    except Exception as e:
+        return f'Error creating task: {e}'
 
 
 def get_weather(location: str) -> str:
@@ -57,17 +97,21 @@ def create_research_tools() -> tool.ToolRegistry:
     registry.register(
         search_files, name='search_files', description='Search for files in a directory using glob patterns'
     )
+    registry.register(
+        create_task, name='create_task', description='Create and schedule a new task with structured validation'
+    )
     return registry
 
 
 def create_research_instruction(tool_registry: tool.ToolRegistry) -> str:
     from owl.prompt import get_prompt
 
-    base_instructions = """You are a helpful research assistant with access to weather, calculation, and file search tools.
+    base_instructions = """You are a helpful research assistant with access to weather, calculation, file search, and task management tools.
 You can help with:
 - Getting weather information for research planning
 - Performing mathematical calculations for data analysis
 - Searching for files in directories
+- Creating and scheduling tasks with structured validation
 
 Use these tools when they would be helpful for the user's request."""
 
@@ -152,6 +196,10 @@ def run_demo(interactive: bool = False):
     research_tools = create_research_tools()
     research_instruction = create_research_instruction(research_tools)
 
+    # see what the instruction looks like
+    # print(research_instruction)
+    # return
+
     assistant = ResearchAgent(
         instruction=research_instruction,
         name='ResearchAgent',
@@ -162,7 +210,7 @@ def run_demo(interactive: bool = False):
 
     if interactive:
         print('Interactive Research Assistant')
-        print('Available tools: weather, calculator, file search')
+        print('Available tools: weather, calculator, file search, task creation')
         print("Type 'quit' to exit\n")
 
         import asyncio
@@ -187,6 +235,7 @@ def run_demo(interactive: bool = False):
             "What's the weather like in Tokyo?",
             'Calculate 15% of 250',
             'Find all Python files in the current directory',
+            'Create a todo for me. I need complete my research paper before July 13 2025. It is very important.',
             "What's the weather in London and calculate the tip for a 45 dollar meal at 18%?",
         ]
 

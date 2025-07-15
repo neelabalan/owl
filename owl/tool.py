@@ -2,12 +2,15 @@ import abc
 import asyncio
 import dataclasses
 import enum
+import inspect
 import json
 import logging
 import typing
 
+import pydantic
+
+import owl.parameter_inference as param_infer
 from owl.common import extract_function_description
-from owl.parameter_inference import ParameterInferenceEngine
 
 
 class ToolType(enum.Enum):
@@ -38,20 +41,113 @@ class ToolSchema:
         if self.metadata is None:
             self.metadata = {}
 
-    def format_for_llm(self) -> str:
-        args_desc = []
-        for param in self.parameters:
-            arg_desc = f'- {param.name}: {param.type_hint}'
-            if param.description:
-                arg_desc += f' - {param.description}'
-            if param.required:
-                arg_desc += ' (required)'
-            elif param.default is not None:
-                arg_desc += f' (default: {param.default})'
-            args_desc.append(arg_desc)
+    @classmethod
+    def from_function(
+        cls,
+        func: typing.Callable,
+        name: str = None,
+        description: str = '',
+        parameters: list[ToolParameter] = None,
+    ) -> 'ToolSchema':
+        if name is None:
+            name = func.__name__
 
-        # Format arguments with proper indentation
-        formatted_args = '\n'.join(f'  {arg}' for arg in args_desc)
+        # Prefer docstring description over provided description
+        docstring_description = extract_function_description(func)
+        final_description = docstring_description if docstring_description else description
+
+        if parameters is None:
+            parameters = cls._infer_parameters_from_function(func)
+
+        if asyncio.iscoroutinefunction(func):
+            tool_type = ToolType.ASYNC_FUNCTION
+        else:
+            tool_type = ToolType.FUNCTION
+
+        return cls(name, final_description, parameters, tool_type)
+
+    @staticmethod
+    def _infer_parameters_from_function(func: typing.Callable) -> list[ToolParameter]:
+        parameter_engine = param_infer.ParameterInferenceEngine()
+        parameter_formatter = param_infer.ParameterFormatter()
+        param_infos = parameter_engine.infer_parameters(func)
+
+        parameters = []
+        for param_info in param_infos:
+            # for complex parameters (like Pydantic models with nested fields),
+            # use the formatter for description
+            if param_info.nested_fields:
+                # this is a complex parameter, format it properly
+                enhanced_description = param_info.description
+                if param_info.constraints:
+                    constraint_str = parameter_formatter._format_constraints(param_info.constraints)
+                    enhanced_description += f' {constraint_str}' if constraint_str else ''
+
+                # create a special tool parameter that includes nested fields info
+                tool_param = ToolParameter(
+                    name=param_info.name,
+                    type_hint=param_info.type_hint,
+                    required=param_info.required,
+                    description=enhanced_description,
+                    default=param_info.default,
+                )
+                # attach nested fields for later formatting
+                tool_param._nested_fields = param_info.nested_fields
+                parameters.append(tool_param)
+            else:
+                # simple parameter, keep existing behavior
+                enhanced_description = param_info.description
+                if param_info.constraints:
+                    constraint_str = parameter_formatter._format_constraints(param_info.constraints)
+                    enhanced_description += f' {constraint_str}' if constraint_str else ''
+
+                parameters.append(
+                    ToolParameter(
+                        name=param_info.name,
+                        type_hint=param_info.type_hint,
+                        required=param_info.required,
+                        description=enhanced_description,
+                        default=param_info.default,
+                    )
+                )
+
+        return parameters
+
+    def format_for_llm(self) -> str:
+        # check if we have any complex parameters (with nested fields)
+        has_complex_params = any(hasattr(param, '_nested_fields') and param._nested_fields for param in self.parameters)
+        if has_complex_params:
+            formatter = param_infer.ParameterFormatter()
+            # convert ToolParameter back to ParameterInfo for formatting
+            param_infos = []
+            for param in self.parameters:
+                param_info = param_infer.ParameterInfo(
+                    name=param.name,
+                    type_hint=param.type_hint,
+                    required=param.required,
+                    description=param.description,
+                    default=param.default,
+                )
+                # add nested fields if available
+                if hasattr(param, '_nested_fields'):
+                    param_info.nested_fields = param._nested_fields
+                param_infos.append(param_info)
+            formatted_args = formatter.format_parameter_list(param_infos)
+        else:
+            # use simple formatting for basic parameters
+            args_desc = []
+            for param in self.parameters:
+                arg_desc = f'- {param.name}: {param.type_hint}'
+                if param.description:
+                    arg_desc += f' - {param.description}'
+                if param.required:
+                    arg_desc += ' (required)'
+                elif param.default is not None:
+                    arg_desc += f' (default: {param.default})'
+                args_desc.append(arg_desc)
+
+            # Format arguments with proper indentation
+            formatted_args = '\n'.join(f'  {arg}' for arg in args_desc)
 
         return f"""Tool: {self.name}\nDescription: {self.description}\nArguments:\n{formatted_args}\n\n"""
 
@@ -73,9 +169,12 @@ class FunctionToolExecutor(ToolExecutor):
 
     def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
         try:
-            return self.func(**arguments)
+            converted_args = _convert_pydantic_arguments(self.func, arguments)
+            return self.func(**converted_args)
         except TypeError as e:
             raise ToolExecutionError(f'Invalid arguments for {self.schema.name}: {e}')
+        except Exception as e:
+            raise ToolExecutionError(f'Error converting arguments for {self.schema.name}: {e}')
 
     def get_schema(self) -> ToolSchema:
         return self.schema
@@ -88,9 +187,12 @@ class AsyncFunctionToolExecutor(ToolExecutor):
 
     async def execute_async(self, arguments: dict[str, typing.Any]) -> typing.Any:
         try:
-            return await self.func(**arguments)
+            converted_args = _convert_pydantic_arguments(self.func, arguments)
+            return await self.func(**converted_args)
         except TypeError as e:
             raise ToolExecutionError(f'Invalid arguments for {self.schema.name}: {e}')
+        except Exception as e:
+            raise ToolExecutionError(f'Error converting arguments for {self.schema.name}: {e}')
 
     def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
         import asyncio
@@ -130,7 +232,6 @@ class ToolExecutionError(Exception):
 class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, ToolExecutor] = {}
-        self._parameter_engine = ParameterInferenceEngine()
 
     def register(
         self,
@@ -143,51 +244,17 @@ class ToolRegistry:
             schema = tool.get_schema()
             self._tools[schema.name] = tool
         elif callable(tool):
-            if name is None:
-                name = tool.__name__
-
-            # Prefer docstring description over provided description
-            docstring_description = extract_function_description(tool)
-            final_description = docstring_description if docstring_description else description
-
-            if parameters is None:
-                parameters = self._infer_parameters_from_function(tool)
+            # Use ToolSchema to create schema from function
+            schema = ToolSchema.from_function(tool, name, description, parameters)
 
             if asyncio.iscoroutinefunction(tool):
-                tool_type = ToolType.ASYNC_FUNCTION
-                schema = ToolSchema(name, final_description, parameters, tool_type)
                 executor = AsyncFunctionToolExecutor(tool, schema)
             else:
-                tool_type = ToolType.FUNCTION
-                schema = ToolSchema(name, final_description, parameters, tool_type)
                 executor = FunctionToolExecutor(tool, schema)
 
             self._tools[schema.name] = executor
         else:
             raise ValueError(f'Cannot register tool of type {type(tool)}')
-
-    def _infer_parameters_from_function(self, func: typing.Callable) -> list[ToolParameter]:
-        param_infos = self._parameter_engine.infer_parameters(func)
-
-        parameters = []
-        for param_info in param_infos:
-            # Create enhanced description with constraints
-            enhanced_description = param_info.description
-            if param_info.constraints:
-                constraint_str = self._parameter_engine.format_constraints(param_info.constraints)
-                enhanced_description += constraint_str
-
-            parameters.append(
-                ToolParameter(
-                    name=param_info.name,
-                    type_hint=param_info.type_hint,
-                    required=param_info.required,
-                    description=enhanced_description,
-                    default=param_info.default,
-                )
-            )
-
-        return parameters
 
     def get_tool(self, name: str) -> ToolExecutor:
         if name not in self._tools:
@@ -256,7 +323,6 @@ class UniversalToolCaller:
 
 
 def format_tools_for_prompt(tools: list[ToolSchema]) -> str:
-    """Format tool schemas for use in prompts"""
     return '\n'.join([tool.format_for_llm() for tool in tools])
 
 
@@ -282,3 +348,23 @@ def create_tool_from_mcp(
 
     schema = ToolSchema(tool_name, description, parameters, ToolType.MCP_TOOL)
     return MCPToolExecutor(tool_name, server_session, schema)
+
+
+def _convert_pydantic_arguments(func: typing.Callable, arguments: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    signature = inspect.signature(func)
+    converted_args = {}
+
+    for param_name, param in signature.parameters.items():
+        if param_name in arguments:
+            # check if this parameter is a Pydantic BaseModel
+            try:
+                if inspect.isclass(param.annotation) and issubclass(param.annotation, pydantic.BaseModel):
+                    # convert dict to Pydantic model
+                    converted_args[param_name] = param.annotation(**arguments[param_name])
+                else:
+                    converted_args[param_name] = arguments[param_name]
+            except (TypeError, AttributeError):
+                # if conversion fails or not a Pydantic model, use original value
+                converted_args[param_name] = arguments[param_name]
+
+    return converted_args
