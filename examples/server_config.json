@@ -1,0 +1,33 @@
+{
+    "mcpServers": {
+        "CloudComputeInfo": {
+            "command": "uv",
+            "args": [
+                "run",
+                "--with",
+                "mcp[cli]",
+                "--with",
+                "requests",
+                "--with",
+                "pyyaml",
+                "mcp",
+                "run",
+                "~/code/cloud-compute-mcp-server/main.py"
+            ]
+        },
+        "filesystem": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-filesystem",
+                "~/ref_code/"
+            ]
+        },
+        "git": {
+            "command": "uvx",
+            "args": [
+                "mcp-server-git"
+            ]
+        }
+    }
+}

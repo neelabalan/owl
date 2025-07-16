@@ -84,6 +84,45 @@ Result: <$>result
 
 Please provide a natural response based on this information."""
 
+[user.tool_followup]
+template = """Previous query: <$>user_query
+Tool result: <$>tool_result
+Context: <$>context
+
+IMPORTANT: Review the original user query and consider what information is still needed.
+
+Do you have enough information to completely answer the user's question now?
+
+- If you have ALL the information needed to fully answer the question: Reply "NO"
+- If you still need MORE information or tools to complete the answer: Reply "YES"
+
+Think carefully about whether you already have sufficient data to provide a complete response.
+
+Answer: YES or NO"""
+
+[user.tool_request]
+template = """Original query: <$>user_query
+Latest tool result: <$>tool_result
+
+You indicated you need another tool. What specific NEW information do you need that you don't already have?
+
+Make the next tool call to get the missing information:
+{
+    "tool": "tool-name",
+    "arguments": {
+        "argument-name": "value"
+    }
+}
+
+IMPORTANT: Don't repeat tool calls you've already made. Only request NEW information."""
+
+[user.final_response]
+template = """User query: <$>user_query
+Tool results obtained:
+<$>tool_results
+
+Please provide a comprehensive final response to the user based on all the tool results above."""
+
 [user.error]
 template = """An error occurred while executing tool '<$>tool_name':
 Error: <$>error_msg

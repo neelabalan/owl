@@ -59,6 +59,7 @@ def get_weather(location: str) -> str:
 
 
 def calculate_math(expression: str) -> str:
+    """Perform mathematical calculations safely"""
     try:
         allowed_chars = set('0123456789+-*/.() ')
         if not all(c in allowed_chars for c in expression):
@@ -74,6 +75,7 @@ def search_files(
     directory: Annotated[str, 'Directory path to search in', {'examples': ['.', '/home/user', 'src/']}],
     pattern: Annotated[str, 'Glob pattern for file matching', {'examples': ['*.py', '**/*.txt', 'test_*.py']}],
 ) -> str:
+    """search for files in a directory using glob pataterns"""
     try:
         dir_path = Path(directory)
         if not dir_path.exists():
@@ -92,14 +94,10 @@ def search_files(
 
 def create_research_tools() -> tool.ToolRegistry:
     registry = tool.ToolRegistry()
+    registry.register(calculate_math)
     registry.register(get_weather, name='get_weather', description='Get current weather information for any location')
-    registry.register(calculate_math, name='calculate_math', description='Perform mathematical calculations safely')
-    registry.register(
-        search_files, name='search_files', description='Search for files in a directory using glob patterns'
-    )
-    registry.register(
-        create_task, name='create_task', description='Create and schedule a new task with structured validation'
-    )
+    registry.register(search_files)
+    registry.register(create_task, description='Create and schedule a new task with structured validation')
     return registry
 
 
@@ -168,27 +166,83 @@ class ResearchAgent(agent.Agent):
         print(f'User: {user_query}')
 
         response = self.run(user_query)
-        print(f'Assistant: {response}\n\n')
+        print(f'Assistant: {response}\n')
 
-        tool_result = self.tool_caller.execute_tool_call(response)
+        # check if the initial response contains a tool call
+        if not self.tool_caller.is_tool_call(response):
+            return response
 
-        if tool_result.success:
-            print(f'Tool executed: {tool_result.result}')
+        # keep processing tool calls until no more are found
+        tool_results = []
+        current_response = response
+        max_iterations = 5
+        iteration = 0
 
-            follow_up_prompt = (
+        while iteration < max_iterations:
+            tool_result = self.tool_caller.execute_tool_call(current_response)
+
+            if tool_result.success:
+                print(f'Tool executed: {tool_result.result}')
+                tool_results.append(tool_result.result)
+
+                # step 1: Ask if assistant needs more tools
+                if len(tool_results) == 1:
+                    context_info = "You have executed 1 tool so far."
+                else:
+                    context_info = f"You have executed {len(tool_results)} tools so far."
+
+                decision_prompt = (
+                    PromptBuilder()
+                    .with_prompt('user', 'tool_followup')
+                    .render(
+                        user_query=user_query,
+                        tool_result=tool_result.result,
+                        context=context_info
+                    )
+                )
+
+                decision_response = self.run(decision_prompt).strip().upper()
+                print(f'Assistant decision: {decision_response}')
+
+                if decision_response.lower().startswith('yes'):
+                    # step 2: Ask for the specific tool call
+                    tool_request_prompt = (
+                        PromptBuilder()
+                        .with_prompt('user', 'tool_request')
+                        .render(user_query=user_query, tool_result=tool_result.result)
+                    )
+
+                    current_response = self.run(tool_request_prompt)
+                    print(f'Assistant tool request: {current_response}\n')
+                    iteration += 1
+                elif decision_response.lower().startswith('no'):
+                    print('Assistant indicated no more tools needed')
+                    break
+                else:
+                    print(f'Unclear decision response: {decision_response}')
+                    break
+
+            elif tool_result.error:
+                print(f'Tool error: {tool_result.error}')
+                break
+            else:
+                # no tool call found, this is the final response
+                break
+
+        # provide final comprehensive response
+        if tool_results:
+            tool_results_formatted = '\n'.join(f'- {result}' for result in tool_results)
+            final_prompt = (
                 PromptBuilder()
-                .with_prompt('user', 'rag_query', query=user_query, doc_count='1', documents=str(tool_result.result))
-                .render()
+                .with_prompt('user', 'final_response')
+                .render(user_query=user_query, tool_results=tool_results_formatted)
             )
 
-            final_response = self.run(follow_up_prompt)
+            final_response = self.run(final_prompt)
             print(f'Final response: {final_response}')
             return final_response
-        elif tool_result.error:
-            print(f'Tool error: {tool_result.error}')
-            return response
         else:
-            return response
+            return current_response
 
 
 def run_demo(interactive: bool = False):
@@ -232,11 +286,13 @@ def run_demo(interactive: bool = False):
         asyncio.run(interactive_loop())
     else:
         test_queries = [
+            "Hi How are you?",
+            "What do you think about AI? explain in briefly in one sentence.",
             "What's the weather like in Tokyo?",
             'Calculate 15% of 250',
             'Find all Python files in the current directory',
             'Create a todo for me. I need complete my research paper before July 13 2025. It is very important.',
-            "What's the weather in London and calculate the tip for a 45 dollar meal at 18%?",
+            'Calculate 15% of 250 and 49.13% of 29807',
         ]
 
         print('Research Assistant Demo')

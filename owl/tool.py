@@ -299,6 +299,10 @@ class UniversalToolCaller:
         self.registry = registry
         self.parser = ToolCallParser()
 
+    def is_tool_call(self, response: str) -> bool:
+        tool_call = self.parser.parse_tool_call(response)
+        return tool_call is not None
+
     def execute_tool_call(self, response: str) -> ToolCallResult:
         tool_call = self.parser.parse_tool_call(response)
         if not tool_call:
