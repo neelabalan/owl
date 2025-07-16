@@ -1,12 +1,12 @@
 import argparse
 import asyncio
 import contextlib
+import dataclasses
 import json
 import logging
 import os
 import pathlib
 import typing
-from dataclasses import dataclass
 
 import mcp
 from mcp.client.stdio import stdio_client
@@ -14,7 +14,7 @@ from mcp.client.stdio import stdio_client
 from owl import tool
 
 
-@dataclass
+@dataclasses.dataclass
 class MCPServerConfig:
     name: str
     command: str
@@ -28,6 +28,7 @@ class MCPServer:
         self.session: mcp.ClientSession | None = None
         self.exit_stack: contextlib.AsyncExitStack = contextlib.AsyncExitStack()
         self._tools: list[tool.ToolSchema] = []
+        self._cleanup_lock: asyncio.Lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         server_params = mcp.StdioServerParameters(
@@ -99,11 +100,20 @@ class MCPServer:
         return self._tools.copy()
 
     async def cleanup(self) -> None:
-        try:
-            await self.exit_stack.aclose()
-            self.session = None
-        except Exception as e:
-            logging.error(f'Error during cleanup of MCP server {self.config.name}: {e}')
+        async with self._cleanup_lock:
+            try:
+                if not self.session:
+                    return
+                self.session = None
+                await self.exit_stack.aclose()
+                self.stdio_context = None
+                print(f"cleaned up {self.config.name}")
+            except Exception as e:
+                logging.error(f'Error during cleanup of server {self.config.name}: {e}')
+                if not isinstance(e, RuntimeError) and "cancel scope in a different task" in str(e):
+                    raise
+            except Exception as e:
+                logging.error(f'Error during cleanup of server {self.config.name}: {e}')
 
 
 class MCPToolExecutor(tool.ToolExecutor):
@@ -123,12 +133,11 @@ class MCPToolExecutor(tool.ToolExecutor):
 
 async def setup_mcp_tools(
     config_path: str | pathlib.Path,
-) -> tuple[tool.ToolRegistry, tool.UniversalToolCaller, list[MCPServer]]:
+) -> tool.ToolRegistry:
     with open(config_path, 'r') as f:
         config_data = json.load(f)
 
     registry = tool.ToolRegistry()
-    servers = []
 
     for server_name, server_config in config_data.get('mcpServers', {}).items():
         mcp_config = MCPServerConfig(
@@ -139,17 +148,59 @@ async def setup_mcp_tools(
         )
 
         server = MCPServer(mcp_config)
-        await server.initialize()
+        try:
+            await server.initialize()
+        except Exception as ex:
+            logging.error(f'Failed to initialize server {server_name}: {ex}')
+            await server.cleanup()
+            return
 
         for tool_schema in server.get_tools():
             executor = MCPToolExecutor(server, tool_schema)
-            registry._tools[tool_schema.name] = executor
+            registry.register(executor)
 
-        servers.append(server)
         logging.info(f"Added MCP server '{mcp_config.name}' with {len(server.get_tools())} tools")
 
-    tool_caller = tool.UniversalToolCaller(registry)
-    return registry, tool_caller, servers
+    return registry
+
+
+async def run(args: argparse.Namespace):
+    tool_registry = None
+    try:
+        tool_registry = await setup_mcp_tools(args.config)
+        # tool_caller = tool.UniversalToolCaller(registry)
+        tools = tool_registry.list_tools()
+        print(f'\nFound {len(tools)} tools:\n')
+        for tool_schema in tools:
+            server_info = f' (MCP: {tool_schema.metadata["server_name"]})'
+            print(f'- {tool_schema.name}: {tool_schema.description}{server_info}')
+
+        print('MCP tools setup completed!')
+        print(f'Loaded {len(tool_registry.list_tools())} tools from MCP servers')
+        print('Servers are running. Press Ctrl+C to shutdown...')
+        while True:
+            await asyncio.sleep(1)
+
+    except KeyboardInterrupt as ex:
+        logging.error(f'Keyboard interrupt received: {ex}')
+    except Exception as ex:
+        logging.error(f'Error: {ex}')
+    finally:
+        if tool_registry and tool_registry._tools:
+            print('Cleaning up servers...')
+            # temp hack
+            for tool in reversed(tool_registry._tools):
+                try:
+                    if hasattr(tool, 'server'):
+                        await tool.server.cleanup()
+                except Exception as e:
+                    logging.error(f'Error cleaning up server {tool.server}: {e}')
+            print('Cleanup completed.')
+            current = asyncio.current_task()
+            pending = [t for t in asyncio.all_tasks() if t is not current]
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 def main():
@@ -161,32 +212,7 @@ def main():
 
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=level, format='%(asctime)s - %(levelname)s - %(message)s')
-
-    async def run():
-        try:
-            registry, tool_caller, servers = await setup_mcp_tools(args.config)
-            tools = registry.list_tools()
-            print(f'\nFound {len(tools)} tools:\n')
-            for tool_schema in tools:
-                server_info = f' (MCP: {tool_schema.metadata["server_name"]})'
-                print(f'- {tool_schema.name}: {tool_schema.description}{server_info}')
-
-            print('MCP tools setup completed!')
-            print(f'Loaded {len(registry.list_tools())} tools from MCP servers')
-
-            while True:
-                await asyncio.sleep(1)
-        except KeyboardInterrupt:
-            print('\nShutting down...')
-
-        except Exception as e:
-            logging.error(f'Error: {e}')
-        finally:
-            if 'servers' in locals():
-                for server in servers:
-                    await server.cleanup()
-
-    asyncio.run(run())
+    asyncio.run(run(args))
 
 
 if __name__ == '__main__':
