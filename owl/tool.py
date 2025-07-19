@@ -161,6 +161,10 @@ class ToolExecutor(abc.ABC):
     def get_schema(self) -> ToolSchema:
         pass
 
+    @abc.abstractmethod
+    def is_async(self) -> bool:
+        pass
+
 
 class FunctionToolExecutor(ToolExecutor):
     def __init__(self, func: typing.Callable, schema: ToolSchema):
@@ -179,13 +183,16 @@ class FunctionToolExecutor(ToolExecutor):
     def get_schema(self) -> ToolSchema:
         return self.schema
 
+    def is_async(self) -> bool:
+        return False
+
 
 class AsyncFunctionToolExecutor(ToolExecutor):
     def __init__(self, func: typing.Callable[..., typing.Awaitable], schema: ToolSchema):
         self.func = func
         self.schema = schema
 
-    async def execute_async(self, arguments: dict[str, typing.Any]) -> typing.Any:
+    async def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
         try:
             converted_args = _convert_pydantic_arguments(self.func, arguments)
             return await self.func(**converted_args)
@@ -194,13 +201,11 @@ class AsyncFunctionToolExecutor(ToolExecutor):
         except Exception as e:
             raise ToolExecutionError(f'Error converting arguments for {self.schema.name}: {e}')
 
-    def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
-        import asyncio
-
-        return asyncio.run(self.execute_async(arguments))
-
     def get_schema(self) -> ToolSchema:
         return self.schema
+
+    def is_async(self) -> bool:
+        return True
 
 
 class MCPToolExecutor(ToolExecutor):
@@ -209,20 +214,18 @@ class MCPToolExecutor(ToolExecutor):
         self.server_session = server_session
         self.schema = schema
 
-    async def execute_async(self, arguments: dict[str, typing.Any]) -> typing.Any:
+    async def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
         try:
             result = await self.server_session.call_tool(self.tool_name, {'request': arguments})
             return result
         except Exception as e:
             raise ToolExecutionError(f'MCP tool execution failed: {e}')
 
-    def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
-        import asyncio
-
-        return asyncio.run(self.execute_async(arguments))
-
     def get_schema(self) -> ToolSchema:
         return self.schema
+
+    def is_async(self) -> bool:
+        return True
 
 
 class ToolExecutionError(Exception):
@@ -266,6 +269,11 @@ class ToolRegistry:
 
     def has_tool(self, name: str) -> bool:
         return name in self._tools
+
+    def is_tool_async(self, name: str) -> bool:
+        if name not in self._tools:
+            raise ValueError(f"Tool '{name}' not found in registry")
+        return self._tools[name].is_async()
 
 
 class ToolCallParser:
