@@ -246,6 +246,37 @@ class ResearchAgent(agent.Agent):
         else:
             return current_response
 
+class HumanInTheLoopConversation(agent.Conversation):
+    # better to be an even number?
+    _max_history: int = 10
+
+    def construct_message_history(self) -> str:
+        if not self.thread.messages:
+            return ''
+        prompt = '< Conversation history >\n'
+        for message in self.thread.messages[-self._max_history :]:
+            prompt += f'{message.author}: {message.content}\n'
+        # prompt += "Your turn: "
+        return prompt
+
+    async def engage(self) -> agent.Message:
+        response = ''
+        for participant in self.participants:
+            if isinstance(participant, agent.Agent):
+                response = agent.Message(
+                    author=participant.name,
+                    content= await participant.process_query(
+                        f'System instruction: {participant.instruction}\n' + self.construct_message_history()
+                    ),
+                )
+                print(f'{participant.name}: {response.content}')
+            elif isinstance(participant, agent.Human):
+                response = agent.Message(author=participant.name, content=input('User: '))
+            else:
+                pass
+            self.thread.add_message(response)
+        return response
+
 async def run_demo(interactive: bool = False):
     # Initialize MCP servers at startup
     mcp_server_manager = MCPServerManager("examples/mcp_research_config.json")
@@ -266,28 +297,19 @@ async def run_demo(interactive: bool = False):
     )
 
     if interactive:
-        print('Interactive Research Assistant with MCP Integration')
-        print('Available tools: weather, calculator, file search, task creation, and MCP tools')
-        print("Type 'quit' to exit\n")
-
-        async def interactive_loop():
+        participants = [
+            agent.Human(name='blue', role=agent.Role.user),
+            assistant
+        ]
+        conversation = HumanInTheLoopConversation(participants)
+        while True:
             try:
-                while True:
-                    try:
-                        user_input = input('\nYour query: ').strip()
-                        if user_input.lower() in ['quit', 'exit', 'q']:
-                            print('Goodbye!')
-                            break
-
-                        if user_input:
-                            await assistant.process_query(user_input)
-                    except KeyboardInterrupt:
-                        print('\nGoodbye!')
-                        break
-            finally:
+                await conversation.engage()
+            except KeyboardInterrupt as _:
+                print('keyboard interrupt...')
                 await mcp_server_manager.stop()
+                return
 
-        await interactive_loop()
     else:
         test_queries = [
             # "Hi How are you?",
@@ -315,7 +337,7 @@ def main():
     import asyncio
 
     # Run in demo mode by default
-    asyncio.run(run_demo(interactive=False))
+    asyncio.run(run_demo(interactive=True))
 
     # Uncomment the line below to run in interactive mode instead
     # asyncio.run(run_demo(interactive=True))

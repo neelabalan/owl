@@ -226,11 +226,11 @@ class MCPToolExecutor(ToolExecutor):
             if not transport:
                 raise ToolExecutionError(f'No transport available for server {self.server_name}')
 
-            tool_request = JSONRPCRequest(
-                jsonrpc='2.0', id=3, method='tools/call', params={'name': self.tool_name, 'arguments': arguments}
+            await transport.send(
+                JSONRPCRequest(
+                    jsonrpc='2.0', id=3, method='tools/call', params={'name': self.tool_name, 'arguments': arguments}
+                ).model_dump_json(exclude_none=True)
             )
-
-            await transport.send(tool_request.model_dump_json(exclude_none=True))
             response_line = await transport.receive()
             response = json.loads(response_line) if response_line else {}
 
@@ -337,6 +337,38 @@ class UniversalToolCaller:
         tool_call = self.parser.parse_tool_call(response)
         return tool_call is not None
 
+    # figure out how to do this properly
+    def run_async(self, func, *args, **kwargs):
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        def runner():
+            return asyncio.run(func(*args, **kwargs))
+
+        if loop and loop.is_running():
+            import queue
+            from threading import Thread
+
+            q = queue.Queue()
+
+            def thread_target():
+                try:
+                    q.put(runner())
+                except Exception as e:
+                    q.put(e)
+
+            t = Thread(target=thread_target)
+            t.start()
+            t.join()
+            result = q.get()
+            if isinstance(result, Exception):
+                raise result
+            return result
+        else:
+            return asyncio.run(func(*args, **kwargs))
+
     def execute_tool_call(self, response: str) -> ToolCallResult:
         tool_call = self.parser.parse_tool_call(response)
         if not tool_call:
@@ -350,7 +382,10 @@ class UniversalToolCaller:
                 return ToolCallResult(success=False, error=f"Tool '{tool_name}' not found")
 
             tool_executor = self.registry.get_tool(tool_name)
-            result = tool_executor.execute(arguments)
+            if tool_executor.is_async():
+                result = self.run_async(tool_executor.execute, arguments)
+            else:
+                result = tool_executor.execute(arguments)
             return ToolCallResult(success=True, result=result)
 
         except ToolExecutionError as e:

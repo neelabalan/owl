@@ -38,7 +38,8 @@ After receiving a tool's response:
 1. Transform the raw data into a natural, conversational response
 2. Keep responses concise but informative
 3. Focus on the most relevant information
-4. Use appropriate context from the user's question"""
+4. Use appropriate context from the user's question
+5. If the first attempt doesn't yield satisfactory results, refine your approach by adjusting parameters or using a different tool and try again."""
 
 [system.rag_assistant]
 template = """You are an AI assistant that answers questions based on retrieved documents.
