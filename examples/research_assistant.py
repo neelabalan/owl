@@ -9,6 +9,7 @@ import requests
 
 from owl import agent
 from owl import tool
+from owl.mcp import MCPServerManager
 from owl.prompt import PromptBuilder
 
 
@@ -92,24 +93,29 @@ def search_files(
         return f'Error searching files: {e}'
 
 
-def create_research_tools() -> tool.ToolRegistry:
+async def create_research_tools(mcp_server_manager) -> tool.ToolRegistry:
     registry = tool.ToolRegistry()
     registry.register(calculate_math)
     registry.register(get_weather, name='get_weather', description='Get current weather information for any location')
     registry.register(search_files)
     registry.register(create_task, description='Create and schedule a new task with structured validation')
+
+    # Register MCP tools from the server manager
+    registry = await tool.register_mcp_tools(registry, mcp_server_manager)
+
     return registry
 
 
 def create_research_instruction(tool_registry: tool.ToolRegistry) -> str:
     from owl.prompt import get_prompt
 
-    base_instructions = """You are a helpful research assistant with access to weather, calculation, file search, and task management tools.
+    base_instructions = """You are a helpful research assistant with access to weather, calculation, file search, task management tools, and MCP tools.
 You can help with:
 - Getting weather information for research planning
 - Performing mathematical calculations for data analysis
 - Searching for files in directories
 - Creating and scheduling tasks with structured validation
+- Using MCP tools for various operations (automatically discovered from configured servers)
 
 Use these tools when they would be helpful for the user's request."""
 
@@ -168,11 +174,11 @@ class ResearchAgent(agent.Agent):
         response = self.run(user_query)
         print(f'Assistant: {response}\n')
 
-        # check if the initial response contains a tool call
+        # Check if the initial response contains a tool call
         if not self.tool_caller.is_tool_call(response):
             return response
 
-        # keep processing tool calls until no more are found
+        # Keep processing tool calls until no more are found
         tool_results = []
         current_response = response
         max_iterations = 5
@@ -185,27 +191,23 @@ class ResearchAgent(agent.Agent):
                 print(f'Tool executed: {tool_result.result}')
                 tool_results.append(tool_result.result)
 
-                # step 1: Ask if assistant needs more tools
+                # Step 1: Ask if assistant needs more tools
                 if len(tool_results) == 1:
-                    context_info = "You have executed 1 tool so far."
+                    context_info = 'You have executed 1 tool so far.'
                 else:
-                    context_info = f"You have executed {len(tool_results)} tools so far."
+                    context_info = f'You have executed {len(tool_results)} tools so far.'
 
                 decision_prompt = (
                     PromptBuilder()
                     .with_prompt('user', 'tool_followup')
-                    .render(
-                        user_query=user_query,
-                        tool_result=tool_result.result,
-                        context=context_info
-                    )
+                    .render(user_query=user_query, tool_result=tool_result.result, context=context_info)
                 )
 
                 decision_response = self.run(decision_prompt).strip().upper()
                 print(f'Assistant decision: {decision_response}')
 
                 if decision_response.lower().startswith('yes'):
-                    # step 2: Ask for the specific tool call
+                    # Step 2: Ask for the specific tool call
                     tool_request_prompt = (
                         PromptBuilder()
                         .with_prompt('user', 'tool_request')
@@ -224,12 +226,12 @@ class ResearchAgent(agent.Agent):
 
             elif tool_result.error:
                 print(f'Tool error: {tool_result.error}')
-                break
+                continue
             else:
-                # no tool call found, this is the final response
+                # No tool call found, this is the final response
                 break
 
-        # provide final comprehensive response
+        # Provide final comprehensive response
         if tool_results:
             tool_results_formatted = '\n'.join(f'- {result}' for result in tool_results)
             final_prompt = (
@@ -244,15 +246,16 @@ class ResearchAgent(agent.Agent):
         else:
             return current_response
 
+async def run_demo(interactive: bool = False):
+    # Initialize MCP servers at startup
+    mcp_server_manager = MCPServerManager("examples/mcp_research_config.json")
+    mcp_server_manager.start()
+    print('MCP servers initialized successfully')
 
-def run_demo(interactive: bool = False):
-    # Setup tools and instructions outside the agent
-    research_tools = create_research_tools()
+    # Setup tools and instructions
+    research_tools = await create_research_tools(mcp_server_manager)
     research_instruction = create_research_instruction(research_tools)
-
-    # see what the instruction looks like
-    # print(research_instruction)
-    # return
+    print(research_instruction)
 
     assistant = ResearchAgent(
         instruction=research_instruction,
@@ -263,55 +266,60 @@ def run_demo(interactive: bool = False):
     )
 
     if interactive:
-        print('Interactive Research Assistant')
-        print('Available tools: weather, calculator, file search, task creation')
+        print('Interactive Research Assistant with MCP Integration')
+        print('Available tools: weather, calculator, file search, task creation, and MCP tools')
         print("Type 'quit' to exit\n")
 
-        import asyncio
-
         async def interactive_loop():
-            while True:
-                try:
-                    user_input = input('\nYour query: ').strip()
-                    if user_input.lower() in ['quit', 'exit', 'q']:
-                        print('Goodbye!')
+            try:
+                while True:
+                    try:
+                        user_input = input('\nYour query: ').strip()
+                        if user_input.lower() in ['quit', 'exit', 'q']:
+                            print('Goodbye!')
+                            break
+
+                        if user_input:
+                            await assistant.process_query(user_input)
+                    except KeyboardInterrupt:
+                        print('\nGoodbye!')
                         break
+            finally:
+                await mcp_server_manager.stop()
 
-                    if user_input:
-                        await assistant.process_query(user_input)
-                except KeyboardInterrupt:
-                    print('\nGoodbye!')
-                    break
-
-        asyncio.run(interactive_loop())
+        await interactive_loop()
     else:
         test_queries = [
-            "Hi How are you?",
-            "What do you think about AI? explain in briefly in one sentence.",
-            "What's the weather like in Tokyo?",
-            'Calculate 15% of 250',
-            'Find all Python files in the current directory',
-            'Create a todo for me. I need complete my research paper before July 13 2025. It is very important.',
-            'Calculate 15% of 250 and 49.13% of 29807',
+            # "Hi How are you?",
+            # "What do you think about AI? explain in briefly in one sentence.",
+            # "What's the weather like in Tokyo?",
+            # 'Calculate 15% of 250',
+            # 'Find all Python files in the current directory',
+            # 'Create a todo for me. I need complete my research paper before July 13 2025. It is very important.',
+            # 'Calculate 15% of 250 and 49.13% of 29807',
+            'Create a Next.js middleware that checks for a valid JWT in cookies and redirects unauthenticated users to `/login`. use context7',
         ]
 
-        print('Research Assistant Demo')
-        print('Testing tool-enabled assistant with weather, calculator, and file search\n')
+        print('Research Assistant Demo with MCP Integration')
+        print('Testing tool-enabled assistant with weather, calculator, file search, and MCP tools\n')
 
-        import asyncio
-
-        async def run_tests():
+        try:
             for i, query in enumerate(test_queries, 1):
                 print(f'Test {i}: {query}')
                 await assistant.process_query(query)
-                print('-' * 50)
+        finally:
+            await mcp_server_manager.stop()
 
-        asyncio.run(run_tests())
+
+def main():
+    import asyncio
+
+    # Run in demo mode by default
+    asyncio.run(run_demo(interactive=False))
+
+    # Uncomment the line below to run in interactive mode instead
+    # asyncio.run(run_demo(interactive=True))
 
 
 if __name__ == '__main__':
-    # Run in demo mode by default
-    run_demo(interactive=False)
-
-    # Uncomment the line below to run in interactive mode instead
-    # run_demo(interactive=True)
+    main()

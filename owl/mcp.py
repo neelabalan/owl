@@ -7,6 +7,9 @@ import subprocess
 import threading
 from dataclasses import dataclass
 
+from mcp.types import JSONRPCNotification
+from mcp.types import JSONRPCRequest
+
 from owl.transports import TransportType
 from owl.transports import create_transport
 
@@ -163,6 +166,44 @@ class MCPServerManager:
     def get_transport(self, server_name: str):
         server = self.get_server(server_name)
         return server.get_transport() if server else None
+
+
+class MCPClient:
+    def __init__(self, server: MCPServer):
+        self.server = server
+        self.transport = server.get_transport()
+
+    async def list_tools(self) -> list[dict]:
+        try:
+            await self.transport.send(
+                JSONRPCRequest(
+                    jsonrpc='2.0',
+                    id=1,
+                    method='initialize',
+                    params={
+                        'protocolVersion': '2024-11-05',
+                        'capabilities': {},
+                        'clientInfo': {'name': 'owl-mcp-integration', 'version': '1.0.0'},
+                    },
+                ).model_dump_json(exclude_none=True)
+            )
+            await self.transport.receive()
+
+            await self.transport.send(
+                JSONRPCNotification(jsonrpc='2.0', method='notifications/initialized').model_dump_json(exclude_none=True)
+            )
+
+            await self.transport.send(
+                JSONRPCRequest(jsonrpc='2.0', id=2, method='tools/list', params={}).model_dump_json(exclude_none=True)
+            )
+            tools_response = json.loads(await self.transport.receive() or '{}')
+
+            if tools_response.get('result'):
+                return tools_response['result'].get('tools', [])
+            return []
+        except Exception as e:
+            logging.error(f'Failed to list tools from server {self.server.config.name}: {e}')
+            return []
 
 
 if __name__ == '__main__':

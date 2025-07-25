@@ -26,7 +26,7 @@ template = """You have access to these tools:
 
 <$>tools_description
 
-IMPORTANT: When you need to use a tool, respond with the exact JSON format:
+IMPORTANT: When you need to use a tool, respond with the exact JSON format and not other text:
 {
     "tool": "tool-name",
     "arguments": {

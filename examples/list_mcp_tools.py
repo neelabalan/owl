@@ -35,38 +35,27 @@ async def list_tools_for_server(server_name: str, transport) -> None:
 
     try:
         init_request = JSONRPCRequest(
-            jsonrpc="2.0",
+            jsonrpc='2.0',
             id=1,
-            method="initialize",
+            method='initialize',
             params={
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {
-                    "name": "owl-mcp-client",
-                    "version": "1.0.0"
-                }
-            }
+                'protocolVersion': '2024-11-05',
+                'capabilities': {},
+                'clientInfo': {'name': 'owl-mcp-client', 'version': '1.0.0'},
+            },
         )
 
         init_response = await send_mcp_request(transport, init_request)
         if not init_response or init_response.get('error'):
-            error_msg = init_response.get('error') if init_response else "No response"
+            error_msg = init_response.get('error') if init_response else 'No response'
             print(f'Failed to initialize {server_name}: {error_msg}', file=sys.stderr)
             return
 
-        notification = JSONRPCNotification(
-            jsonrpc="2.0",
-            method="notifications/initialized"
-        )
+        notification = JSONRPCNotification(jsonrpc='2.0', method='notifications/initialized')
         print(f'Sending initialized notification: {notification.model_dump_json(exclude_none=True)}', file=sys.stderr)
         await transport.send(notification.model_dump_json(exclude_none=True))
 
-        tools_request = JSONRPCRequest(
-            jsonrpc="2.0",
-            id=2,
-            method="tools/list",
-            params={}
-        )
+        tools_request = JSONRPCRequest(jsonrpc='2.0', id=2, method='tools/list', params={})
         tools_response = await send_mcp_request(transport, tools_request)
 
         if tools_response and tools_response.get('result'):

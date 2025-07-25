@@ -60,7 +60,9 @@ class StdioTransport(Transport):
             loop = asyncio.get_event_loop()
             try:
                 # Add timeout to prevent hanging
-                line = await asyncio.wait_for(loop.run_in_executor(None, self.stdout_stream.readline), timeout=self._timeout)
+                line = await asyncio.wait_for(
+                    loop.run_in_executor(None, self.stdout_stream.readline), timeout=self._timeout
+                )
             except asyncio.TimeoutError:
                 raise EOFError('Timeout waiting for response')
 

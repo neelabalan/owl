@@ -303,7 +303,6 @@ class ParameterInferenceEngine:
 
 
 class ParameterFormatter:
-
     def format_parameter_list(self, parameters: list[ParameterInfo]) -> str:
         if not parameters:
             return ''

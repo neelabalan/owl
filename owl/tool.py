@@ -8,9 +8,15 @@ import logging
 import typing
 
 import pydantic
+from mcp.types import JSONRPCRequest
 
 import owl.parameter_inference as param_infer
 from owl.common import extract_function_description
+from owl.mcp import MCPClient
+from owl.mcp import MCPServer
+
+if typing.TYPE_CHECKING:
+    from owl.mcp import MCPServerManager
 
 
 class ToolType(enum.Enum):
@@ -209,17 +215,37 @@ class AsyncFunctionToolExecutor(ToolExecutor):
 
 
 class MCPToolExecutor(ToolExecutor):
-    def __init__(self, tool_name: str, server_session: typing.Any, schema: ToolSchema):
+    def __init__(self, tool_name: str, server: MCPServer, schema: ToolSchema):
         self.tool_name = tool_name
-        self.server_session = server_session
+        self.server = server
         self.schema = schema
 
     async def execute(self, arguments: dict[str, typing.Any]) -> typing.Any:
         try:
-            result = await self.server_session.call_tool(self.tool_name, {'request': arguments})
-            return result
+            transport = self.server.get_transport()
+            if not transport:
+                raise ToolExecutionError(f'No transport available for server {self.server_name}')
+
+            tool_request = JSONRPCRequest(
+                jsonrpc='2.0', id=3, method='tools/call', params={'name': self.tool_name, 'arguments': arguments}
+            )
+
+            await transport.send(tool_request.model_dump_json(exclude_none=True))
+            response_line = await transport.receive()
+            response = json.loads(response_line) if response_line else {}
+
+            if response.get('result'):
+                content = response['result'].get('content', [])
+                if content and isinstance(content, list):
+                    return '\n'.join([item.get('text', '') for item in content])
+                return str(response['result'])
+            elif response.get('error'):
+                raise ToolExecutionError(f'MCP tool error: {response["error"]}')
+
+            return 'No response from MCP tool'
+
         except Exception as e:
-            raise ToolExecutionError(f'MCP tool execution failed: {e}')
+            raise ToolExecutionError(f'Error executing MCP tool {self.tool_name}: {e}')
 
     def get_schema(self) -> ToolSchema:
         return self.schema
@@ -380,3 +406,70 @@ def _convert_pydantic_arguments(func: typing.Callable, arguments: dict[str, typi
                 converted_args[param_name] = arguments[param_name]
 
     return converted_args
+
+
+async def register_mcp_tools(tool_registry: 'ToolRegistry', mcp_server_manager: 'MCPServerManager') -> 'ToolRegistry':
+    if not mcp_server_manager:
+        logging.warning('No MCP server manager provided, skipping MCP tool registration')
+        return tool_registry
+
+    servers = mcp_server_manager.list_servers()
+    for server_name in servers:
+        server = mcp_server_manager.get_server(server_name)
+        tool_registry = await _register_server_tools(tool_registry, server)
+
+    return tool_registry
+
+
+async def _register_server_tools(tool_registry: 'ToolRegistry', server: MCPServer) -> ToolRegistry:
+    transport = server.get_transport()
+    if not transport:
+        logging.warning(f'No transport available for server {server.config.name}')
+        return
+
+    try:
+        client = MCPClient(server)
+        tools_list = await client.list_tools()
+
+        for tool_info in tools_list:
+            print(tool_info)
+            tool_name = tool_info.get('name', 'unknown')
+            description = tool_info.get('description', 'MCP tool')
+            input_schema = tool_info.get('inputSchema', {})
+
+            mcp_executor = create_mcp_tool_executor(
+                tool_name=tool_name,
+                description=description,
+                input_schema=input_schema,
+                server=server,
+            )
+
+            tool_registry.register(mcp_executor)
+            logging.info(f'Registered MCP tool: {tool_name} from server {server.config.name}')
+
+    except Exception as e:
+        raise RuntimeError(f'Failed to register tools from server {server.config.name}: {e}')
+    return tool_registry
+
+
+def create_mcp_tool_executor(
+    tool_name: str, description: str, input_schema: dict, server: MCPServer
+) -> 'MCPToolExecutor':
+    parameters = []
+
+    if input_schema.get('type') == 'object':
+        properties = input_schema.get('properties', {})
+        required_fields = input_schema.get('required', [])
+
+        for param_name, param_info in properties.items():
+            parameters.append(
+                ToolParameter(
+                    name=param_name,
+                    type_hint=param_info.get('type', 'str'),
+                    required=param_name in required_fields,
+                    description=param_info.get('description', ''),
+                )
+            )
+
+    schema = ToolSchema(tool_name, description, parameters, ToolType.MCP_TOOL)
+    return MCPToolExecutor(tool_name, server, schema)
