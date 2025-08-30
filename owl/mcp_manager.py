@@ -7,9 +7,8 @@ import subprocess
 import threading
 from dataclasses import dataclass
 
-from mcp.types import JSONRPCNotification
-from mcp.types import JSONRPCRequest
-
+from owl.jsonrpc import JsonRpcNotification
+from owl.jsonrpc import JsonRpcRequest
 from owl.transports import TransportType
 from owl.transports import create_transport
 
@@ -176,7 +175,7 @@ class MCPClient:
     async def list_tools(self) -> list[dict]:
         try:
             await self.transport.send(
-                JSONRPCRequest(
+                JsonRpcRequest(
                     jsonrpc='2.0',
                     id=1,
                     method='initialize',
@@ -190,11 +189,11 @@ class MCPClient:
             await self.transport.receive()
 
             await self.transport.send(
-                JSONRPCNotification(jsonrpc='2.0', method='notifications/initialized').model_dump_json(exclude_none=True)
+                JsonRpcNotification(jsonrpc='2.0', method='notifications/initialized').model_dump_json(exclude_none=True)
             )
 
             await self.transport.send(
-                JSONRPCRequest(jsonrpc='2.0', id=2, method='tools/list', params={}).model_dump_json(exclude_none=True)
+                JsonRpcRequest(jsonrpc='2.0', id=2, method='tools/list', params={}).model_dump_json(exclude_none=True)
             )
             tools_response = json.loads(await self.transport.receive() or '{}')
 

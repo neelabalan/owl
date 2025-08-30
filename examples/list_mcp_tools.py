@@ -4,13 +4,12 @@ import json
 import sys
 from typing import Any
 
-from mcp.types import JSONRPCNotification
-from mcp.types import JSONRPCRequest
+from owl.jsonrpc import JsonRpcNotification
+from owl.jsonrpc import JsonRpcRequest
+from owl.mcp_manager import MCPServerManager
 
-from owl.mcp import MCPServerManager
 
-
-async def send_mcp_request(transport, request: JSONRPCRequest) -> dict[str, Any] | None:
+async def send_mcp_request(transport, request: JsonRpcRequest) -> dict[str, Any] | None:
     request_json = request.model_dump_json(exclude_none=True)
     print(f'Sending: {request_json}', file=sys.stderr)
     await transport.send(request_json)
@@ -34,7 +33,7 @@ async def list_tools_for_server(server_name: str, transport) -> None:
     print(f'\nQuerying server: {server_name}', file=sys.stderr)
 
     try:
-        init_request = JSONRPCRequest(
+        init_request = JsonRpcRequest(
             jsonrpc='2.0',
             id=1,
             method='initialize',
@@ -51,11 +50,11 @@ async def list_tools_for_server(server_name: str, transport) -> None:
             print(f'Failed to initialize {server_name}: {error_msg}', file=sys.stderr)
             return
 
-        notification = JSONRPCNotification(jsonrpc='2.0', method='notifications/initialized')
+        notification = JsonRpcNotification(jsonrpc='2.0', method='notifications/initialized')
         print(f'Sending initialized notification: {notification.model_dump_json(exclude_none=True)}', file=sys.stderr)
         await transport.send(notification.model_dump_json(exclude_none=True))
 
-        tools_request = JSONRPCRequest(jsonrpc='2.0', id=2, method='tools/list', params={})
+        tools_request = JsonRpcRequest(jsonrpc='2.0', id=2, method='tools/list', params={})
         tools_response = await send_mcp_request(transport, tools_request)
 
         if tools_response and tools_response.get('result'):

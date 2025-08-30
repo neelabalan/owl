@@ -8,15 +8,15 @@ import logging
 import typing
 
 import pydantic
-from mcp.types import JSONRPCRequest
 
 import owl.parameter_inference as param_infer
 from owl.common import extract_function_description
-from owl.mcp import MCPClient
-from owl.mcp import MCPServer
+from owl.jsonrpc import JsonRpcRequest
+from owl.mcp_manager import MCPClient
+from owl.mcp_manager import MCPServer
 
 if typing.TYPE_CHECKING:
-    from owl.mcp import MCPServerManager
+    from owl.mcp_manager import MCPServerManager
 
 
 class ToolType(enum.Enum):
@@ -227,7 +227,7 @@ class MCPToolExecutor(ToolExecutor):
                 raise ToolExecutionError(f'No transport available for server {self.server_name}')
 
             await transport.send(
-                JSONRPCRequest(
+                JsonRpcRequest(
                     jsonrpc='2.0', id=3, method='tools/call', params={'name': self.tool_name, 'arguments': arguments}
                 ).model_dump_json(exclude_none=True)
             )

@@ -1,10 +1,9 @@
 import mimetypes
 import pathlib
 
-import pydantic
-
 # Using httpx for better async support and modern HTTP client
 import httpx
+import pydantic
 
 from owl import url
 

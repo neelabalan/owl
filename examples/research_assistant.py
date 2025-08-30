@@ -4,12 +4,12 @@ import random
 from pathlib import Path
 from typing import Annotated
 
-import pydantic
 import httpx
+import pydantic
 
 from owl import agent
 from owl import tool
-from owl.mcp import MCPServerManager
+from owl.mcp_manager import MCPServerManager
 from owl.prompt import PromptBuilder
 
 
@@ -247,6 +247,7 @@ class ResearchAgent(agent.Agent):
         else:
             return current_response
 
+
 class HumanInTheLoopConversation(agent.Conversation):
     # better to be an even number?
     _max_history: int = 10
@@ -266,7 +267,7 @@ class HumanInTheLoopConversation(agent.Conversation):
             if isinstance(participant, agent.Agent):
                 response = agent.Message(
                     author=participant.name,
-                    content= await participant.process_query(
+                    content=await participant.process_query(
                         f'System instruction: {participant.instruction}\n' + self.construct_message_history()
                     ),
                 )
@@ -278,9 +279,10 @@ class HumanInTheLoopConversation(agent.Conversation):
             self.thread.add_message(response)
         return response
 
+
 async def run_demo(interactive: bool = False):
     # Initialize MCP servers at startup
-    mcp_server_manager = MCPServerManager("examples/mcp_research_config.json")
+    mcp_server_manager = MCPServerManager('examples/mcp_research_config.json')
     mcp_server_manager.start()
     print('MCP servers initialized successfully')
 
@@ -298,10 +300,7 @@ async def run_demo(interactive: bool = False):
     )
 
     if interactive:
-        participants = [
-            agent.Human(name='blue', role=agent.Role.user),
-            assistant
-        ]
+        participants = [agent.Human(name='blue', role=agent.Role.user), assistant]
         conversation = HumanInTheLoopConversation(participants)
         while True:
             try:

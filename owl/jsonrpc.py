@@ -53,6 +53,19 @@ class JsonRpcRequest(pydantic.BaseModel):
         return self.id is None
 
 
+class JsonRpcNotification(pydantic.BaseModel):
+    method: str = pydantic.Field(..., min_length=1, description='The name of the method to be invoked')
+    params: typing.Any = pydantic.Field(default=None, description='Parameters for the method')
+    jsonrpc: str = pydantic.Field(default='2.0', pattern=r'^2\.0$', description='JSON-RPC version')
+
+    class Config:
+        extra = 'forbid'
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'JsonRpcNotification':
+        return cls(**data)
+
+
 class JsonRpcResponse(pydantic.BaseModel):
     result: typing.Any = None
     error: typing.Optional[JsonRpcErrorModel] = None
