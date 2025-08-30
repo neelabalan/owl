@@ -7,7 +7,7 @@
                 "--with",
                 "mcp[cli]",
                 "--with",
-                "requests",
+                "httpx",
                 "--with",
                 "pyyaml",
                 "mcp",

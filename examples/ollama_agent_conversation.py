@@ -1,7 +1,7 @@
 import json
 import os
 
-import requests
+import httpx
 
 from owl import agent
 
@@ -14,17 +14,18 @@ class OllamaAgent(agent.Agent):
             # Use the correct Ollama chat API format
             payload = {'model': self.model, 'messages': [{'role': 'user', 'content': prompt}], 'stream': False}
 
-            response = requests.post(
-                self._url,
-                headers={'Content-Type': 'application/json'},
-                data=json.dumps(payload),
-            )
-            response.raise_for_status()
+            with httpx.Client() as client:
+                response = client.post(
+                    self._url,
+                    headers={'Content-Type': 'application/json'},
+                    content=json.dumps(payload),
+                )
+                response.raise_for_status()
 
-            json_response = response.json()
-            return json_response['message']['content']
+                json_response = response.json()
+                return json_response['message']['content']
 
-        except requests.exceptions.RequestException as e:
+        except httpx.RequestError as e:
             print(f'Error communicating with Ollama: {e}')
             return None
         except (KeyError, TypeError) as e:

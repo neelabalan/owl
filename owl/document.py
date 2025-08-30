@@ -3,9 +3,8 @@ import pathlib
 
 import pydantic
 
-# eventually get rid of requests as well if possible
-# maybe httpx?
-import requests
+# Using httpx for better async support and modern HTTP client
+import httpx
 
 from owl import url
 
@@ -64,14 +63,15 @@ class DocumentLoader:
 
     @staticmethod
     def load_url(url: url.WebAddress) -> Document:
-        resp = requests.get(str(url))
-        resp.raise_for_status()
-        content = resp.text
-        mime_type = resp.headers.get('Content-Type', '')
-        metadata = {
-            'content_length': len(content),
-            'mime_type': mime_type,
-            'source': url.url,
-            'response_headers': dict(resp.headers),
-        }
+        with httpx.Client() as client:
+            resp = client.get(str(url))
+            resp.raise_for_status()
+            content = resp.text
+            mime_type = resp.headers.get('Content-Type', '')
+            metadata = {
+                'content_length': len(content),
+                'mime_type': mime_type,
+                'source': url.url,
+                'response_headers': dict(resp.headers),
+            }
         return Document(content=content, source=url, metadata=metadata)

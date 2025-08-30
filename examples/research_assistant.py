@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated
 
 import pydantic
-import requests
+import httpx
 
 from owl import agent
 from owl import tool
@@ -146,22 +146,23 @@ class ResearchAgent(agent.Agent):
 
             messages.append({'role': 'user', 'content': prompt})
 
-            response = requests.post(
-                'https://api.openai.com/v1/chat/completions',
-                headers={'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'},
-                json={
-                    'model': self.model,
-                    'messages': messages,
-                    'temperature': 0.3,
-                    'max_tokens': 1000,
-                },
-            )
-            response.raise_for_status()
+            with httpx.Client() as client:
+                response = client.post(
+                    'https://api.openai.com/v1/chat/completions',
+                    headers={'Authorization': f'Bearer {self.api_key}', 'Content-Type': 'application/json'},
+                    json={
+                        'model': self.model,
+                        'messages': messages,
+                        'temperature': 0.3,
+                        'max_tokens': 1000,
+                    },
+                )
+                response.raise_for_status()
 
-            json_response = response.json()
-            return json_response['choices'][0]['message']['content']
+                json_response = response.json()
+                return json_response['choices'][0]['message']['content']
 
-        except requests.exceptions.RequestException as e:
+        except httpx.RequestError as e:
             print(f'Error communicating with OpenAI: {e}')
             return f'Error: {e}'
         except (KeyError, TypeError) as e:
