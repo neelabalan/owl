@@ -7,8 +7,10 @@ from enum import Enum
 
 import pydantic
 
-from owl.tool import ToolRegistry
 from owl.transports import Transport
+
+if typing.TYPE_CHECKING:
+    from owl.tool import ToolRegistry
 
 
 class JsonRpcError(Exception):
@@ -138,7 +140,7 @@ class JsonRpcEngine:
     def __init__(
         self,
         transport: Transport,
-        tool_registry: ToolRegistry,
+        tool_registry: 'ToolRegistry',
         protocol: Protocol = None,
         middleware: list[Middleware] = None,
     ):

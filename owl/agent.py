@@ -5,7 +5,8 @@ import enum
 import typing
 import uuid
 
-from owl import tool
+if typing.TYPE_CHECKING:
+    from owl import tool
 
 
 class Role(enum.Enum):
@@ -87,11 +88,16 @@ class Agent:
     name: str
     role: Role
     description: str = ''
-    tool_registry: tool.ToolRegistry = dataclasses.field(default_factory=tool.ToolRegistry)
+    tool_registry: 'tool.ToolRegistry' = None
     model: str = 'gpt-4o'
     temperature: float = 0.0
     seed: int = 13
     observers: dict[str, Observer] = dataclasses.field(default_factory=dict)
+
+    def __post_init__(self):
+        if self.tool_registry is None:
+            from owl import tool
+            self.tool_registry = tool.ToolRegistry()
 
     def run(self, prompt: str) -> str:
         pass
